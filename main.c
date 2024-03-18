@@ -113,10 +113,6 @@ typedef enum
 static void initialize_capsense(void);
 static void capsense_msc0_isr(void);
 
-#if CY_CAPSENSE_BIST_EN
-static void measure_sensor_capacitance(uint32_t *sensor_capacitance);
-#endif
-
 static void ezi2c_isr(void);
 static void initialize_capsense_tuner(void);
 
@@ -202,14 +198,6 @@ int main(void)
     uint32_t capsense_state_timeout;
     uint32_t interruptStatus;
 
-    #if CY_CAPSENSE_BIST_EN
-    uint32_t sensor_capacitance[CY_CAPSENSE_SENSOR_COUNT];
-    #endif
-    #if ENABLE_RUN_TIME_MEASUREMENT
-    static uint32_t active_processing_time;
-    static uint32_t alr_processing_time;
-    #endif
-
     /* Initialize the device and board peripherals */
     result = cybsp_init() ;
 
@@ -247,10 +235,6 @@ int main(void)
 
     /* Initialize MSC CAPSENSE&trade; */
     initialize_capsense();
-
-    #if CY_CAPSENSE_BIST_EN
-    measure_sensor_capacitance(sensor_capacitance);
-    #endif
 
     /* Measures the actual ILO frequency and compensate MSCLP wake up timers */
     Cy_CapSense_IloCompensate(&cy_capsense_context);
@@ -562,38 +546,6 @@ static void init_sys_tick()
 }
 #endif
 
-#if CY_CAPSENSE_BIST_EN
-/*******************************************************************************
- * Function Name: measure_sensor_capacitance
- ********************************************************************************
- * Summary:
- *  Measure the sensor Capacitance of all sensors configured and stores the values in an array using BIST.
- *  BIST Measurements are taken by Connection connecting ISC to Shield.
- *  It is based on actual application configuration.
- * Parameters:
- *   sensor_capacitance - This array holds the measured sensor capacitance values.
- *                        array values are arranged as regular widget sensors first and
- *                        followed by Low power widget sensors . refer configurator for the
- *                        sensor order.
- *******************************************************************************/
-static void measure_sensor_capacitance(uint32_t *sensor_capacitance)
-{
-    /* For BIST configuration Connecting all Inactive sensor connections (ISC) of CSD sensors to to shield*/
-    Cy_CapSense_SetInactiveElectrodeState(CY_CAPSENSE_SNS_CONNECTION_SHIELD,
-            CY_CAPSENSE_BIST_CSD_GROUP, &cy_capsense_context);
-
-    /*Runs the BIST to measure the sensor capacitance*/
-    Cy_CapSense_RunSelfTest(CY_CAPSENSE_BIST_SNS_CAP_MASK,
-            &cy_capsense_context);
-    Cy_CapSense_RunSelfTest(CY_CAPSENSE_BIST_SHIELD_CAP_MASK,
-            &cy_capsense_context);
-    memcpy(sensor_capacitance,
-            cy_capsense_context.ptrWdConfig->ptrSnsCapacitance,
-            CY_CAPSENSE_SENSOR_COUNT * sizeof(uint32_t));
-}
-
-#endif
-
 #if ENABLE_RUN_TIME_MEASUREMENT
 /*******************************************************************************
  * Function Name: start_runtime_measurement
@@ -639,21 +591,20 @@ void led_control()
 {
     cy_stc_capsense_touch_t *slider_touch_info;
     uint16_t slider_pos;
-    uint8_t slider_touch_status;
 
-    /* Get slider status */
-    slider_touch_info = Cy_CapSense_GetTouchInfo(
-            CY_CAPSENSE_LINEARSLIDER0_WDGT_ID, &cy_capsense_context);
-    slider_touch_status = slider_touch_info->numPosition;
-    slider_pos = slider_touch_info->ptrPosition->x;
-
-    if((0 != slider_touch_status))
+    if(Cy_CapSense_IsAnyWidgetActive(&cy_capsense_context))
     {
-        /* LED3 Turns ON and brightness changes when there is touch detected */
+        /* Get slider status */
+        slider_touch_info = Cy_CapSense_GetTouchInfo(
+                CY_CAPSENSE_LINEARSLIDER0_WDGT_ID, &cy_capsense_context);
+        slider_pos = slider_touch_info->ptrPosition->x;
+
+        /* LED3 Turns ON and brightness changes when there is a touch detected on the slider */
         Cy_TCPWM_PWM_SetCompare0(CYBSP_PWM_HW, CYBSP_PWM_NUM, slider_pos*100);
     }
     else
     {
+        /* Turn OFF LED */
         Cy_TCPWM_PWM_SetCompare0(CYBSP_PWM_HW, CYBSP_PWM_NUM, 0);
     }
 }
